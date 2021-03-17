@@ -1,0 +1,157 @@
+from random import randint
+import sqlite3
+
+
+class Bank:
+    def __init__(self):
+        self.logged_in = False
+        self.conn = sqlite3.connect('card.s3db')
+        self.cur = self.conn.cursor()
+        self.create_table()
+        self.menu()
+
+    def create_table(self):
+        sql_create_card_table = """CREATE TABLE IF NOT EXISTS card (id INTEGER, number TEXT,
+        pin TEXT, balance INTEGER DEFAULT 0); """
+        self.cur.execute(sql_create_card_table)
+        self.conn.commit()
+
+    def menu(self):
+        while not self.logged_in:
+            print('1. Create an account\n2. Log into account\n0. Exit')
+            choice = input()
+            if choice == '1':
+                self.create()
+            elif choice == '2':
+                self.login()
+            elif choice == '0':
+                print('\nBye!')
+                self.cur.close()
+                self.conn.close()
+                quit()
+
+    def create(self):
+        print()
+        id_ = self.gen_id()
+        card = '400000' + str.zfill(str(randint(000000000, 999999999)), 9)
+        card += self.luhn_alg(card)
+        pin = str.zfill(str(randint(0000, 9999)), 4)
+        self.create_card(id_, card, pin, 0)
+        print(f'Your card has been created\nYour card number:\n{card}\nYour card PIN:\n{pin}\n')
+
+    def login(self):
+        print('\nEnter your card number:')
+        card = input()
+        print('Enter your PIN:')
+        pin = input()
+        cards = self.read_card(card, pin)
+        if cards:
+            print('\nYou have successfully logged in!\n')
+            self.logged_in = True
+            self.account_menu(cards[0])
+        else:
+            print('\nWrong card number or Pin!\n')
+
+    def create_card(self, id_, number, pin, balance):
+        sql_insert_card = """INSERT INTO card (id, number, pin, balance) VALUES (?, ?, ?, ?); """
+        data_tuple = (id_, number, pin, balance)
+        self.cur.execute(sql_insert_card, data_tuple)
+        self.conn.commit()
+
+    def gen_id(self):
+        query = """SELECT id FROM card ORDER BY id DESC LIMIT 1;"""
+        self.cur.execute(query)
+        records = self.cur.fetchall()
+        try:
+            return records[0][0] + 1
+        except IndexError:
+            return 1
+
+    def read_card(self, card, pin):
+        query = """SELECT number, pin FROM card WHERE number = ? AND pin = ?"""
+        data_tuple = (card, pin)
+        self.cur.execute(query, data_tuple)
+        rows = self.cur.fetchone()
+        return rows
+
+    def get_balance(self, customer):
+        query = """SELECT balance FROM card WHERE number = ?"""
+        self.cur.execute(query, (customer,))
+        rows = self.cur.fetchone()
+        return rows[0]
+
+    def add_income(self, amt, customer):
+        curr_bal = self.get_balance(customer)
+        curr_bal += amt
+        data_tuple = (curr_bal, customer)
+        query = """UPDATE card SET balance = ? WHERE number = ?"""
+        self.cur.execute(query, data_tuple)
+        self.conn.commit()
+
+    def close_acc(self, customer):
+        query = """DELETE FROM card WHERE number = ?"""
+        self.cur.execute(query, (customer, ))
+        self.conn.commit()
+
+    def money_transfer(self, to, from_):
+        IIN = to[:6]
+        check_card = self.luhn_alg(to[:15])
+        curr_bal = self.get_balance(from_)
+        if to == from_:
+            print("You can't transfer money to the same account!")
+        if IIN != '400000':
+            print("Such a card does not exist.")
+        elif (len(to) != 16) or (check_card != to[15]):
+            print("Probably you made a mistake in the card number. Please try again!")
+        else:
+            amt = int(input("Enter how much money you want to transfer:"))
+            if curr_bal < amt:
+                print("Not enough money!")
+            else:
+                try:
+                    self.add_income(amt, to)
+                    self.add_income(-amt, from_)
+                    print("Success!")
+                except TypeError:
+                    print("Such a card does not exist.")
+
+    def account_menu(self, customer):
+        while self.logged_in:
+            print('1. Balance\n2. Add income\n3. Do transfer\n4. Close account\n5. Log out\n0. Exit')
+            choice = input()
+            if choice == '1':
+                print(self.get_balance(customer))
+            elif choice == '2':
+                amt = int(input("Enter income:"))
+                self.add_income(amt, customer)
+                print("Income was added!")
+            elif choice == '3':
+                print("Transfer")
+                receiver_acc = input("Enter card number:")
+                self.money_transfer(receiver_acc, customer)
+            elif choice == '4':
+                self.close_acc(customer)
+                print("The account has been closed!")
+                self.logged_in = False
+            elif choice == '5':
+                self.logged_in = False
+                print('\nYou have successfully logged out!\n')
+            elif choice == '0':
+                print('\nBye!')
+                self.cur.close()
+                self.conn.close()
+                quit()
+
+    def luhn_alg(self, card_15):
+        card_check = [int(i) for i in card_15]
+        for index, _ in enumerate(card_check):
+            if index % 2 == 0:
+                card_check[index] *= 2
+            if card_check[index] > 9:
+                card_check[index] -= 9
+        check_sum = str((10 - sum(card_check) % 10) % 10)
+        return check_sum
+
+
+if __name__ == '__main__':
+    stage_4 = Bank()
